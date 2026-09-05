@@ -14,7 +14,7 @@
     };
     window.TV_SHOWS_CONFIG = CONFIG;
 
-    function esc(value) { return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function esc(value) { return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;'); }
     function apiGet(url) { return fetch(url,{credentials:'omit'}).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
     function pad2(v) { v=String(v); return v.length<2?'0'+v:v; }
 
@@ -102,8 +102,30 @@
         });
     }
 
+    function addMenuEntry(open) {
+        if (!window.Lampa || !window.Lampa.Menu || typeof window.Lampa.Menu.addButton !== 'function') return false;
+        if (document.querySelector('.menu__item[data-holaself-tv-shows="1"]')) return true;
+
+        var button=window.Lampa.Menu.addButton('<svg><use xlink:href="#sprite-tv"></use></svg>', 'ТВ-шоу', open);
+        button.attr('data-holaself-tv-shows','1').attr('data-action','tv-shows');
+
+        var series=document.querySelector('.menu__item[data-action="tv"]');
+        if (series && series.parentNode) series.parentNode.insertBefore(button[0],series.nextSibling);
+        return true;
+    }
+
+    function waitForMenu(open) {
+        var attempts=0;
+        function tryAdd(){
+            attempts++;
+            if(addMenuEntry(open)) return;
+            if(attempts<40) setTimeout(tryAdd,250);
+        }
+        tryAdd();
+    }
+
     function mount() {
-        var panel=document.getElementById('tv-shows-panel'), grid=document.getElementById('tv-shows-grid'), title=document.getElementById('tv-shows-title'), back=document.getElementById('tv-shows-back'), entry=document.getElementById('tv-shows-entry'), close=document.getElementById('tv-shows-close');
+        var panel=document.getElementById('tv-shows-panel'), grid=document.getElementById('tv-shows-grid'), title=document.getElementById('tv-shows-title'), back=document.getElementById('tv-shows-back'), close=document.getElementById('tv-shows-close');
         if(!panel||!grid||panel.__tvMounted)return;
         panel.__tvMounted=true;
         var state={level:'channels',config:null,channel:null,show:null,movie:null,episodes:[],season:null};
@@ -117,11 +139,12 @@
         function showEpisodes(episodes,season){state.level='episodes';state.season=season;header(state.show.name+' — сезон '+season,true);episodes.sort(function(a,b){return Number(a.number)-Number(b.number);});cards(episodes,function(ep){return '<div class="tv-show-card__name">'+esc(ep.number)+'. '+esc(ep.name)+'</div><div class="tv-show-card__status">'+esc(ep.airdate||'')+' · Торренты</div>';},findTorrents);}
         function findTorrents(ep){state.level='torrents';header(ep.showName+' — '+ep.name,true);grid.innerHTML='<div class="tv-show-empty">Поиск торрентов: '+esc(torrentQuery(ep))+'…</div>';searchTorrents(ep,state.movie,function(items){cards(items,function(item){var size=item.size||item.Size||'';return '<div class="tv-show-card__name">'+esc(item.Title||item.title||'Раздача')+'</div><div class="tv-show-card__status">'+esc(size)+' · '+esc(item.Seeders||item.seeders||0)+' сидов · TorrServer</div>';},function(item){try{openTorrent(item,state.movie);}catch(e){grid.innerHTML='<div class="tv-show-empty">Не удалось открыть торрент через Lampa/TorrServer.</div>';}});},function(){grid.innerHTML='<div class="tv-show-empty">Не удалось выполнить поиск. Проверьте настройки парсера и TorrServer в Lampa.</div>';});}
         function open(){panel.classList.add('is-visible');panel.setAttribute('aria-hidden','false');showChannels();}
-        function hide(){panel.classList.remove('is-visible');panel.setAttribute('aria-hidden','true');if(entry)entry.focus();}
-        if(entry)entry.addEventListener('click',open);if(close)close.addEventListener('click',hide);if(back)back.addEventListener('click',function(){if(state.level==='shows')showChannels();else if(state.level==='seasons')showShows(state.channel);else if(state.level==='episodes')showSeasons();else if(state.level==='torrents')showEpisodes(state.episodes.filter(function(e){return String(e.season)===String(state.season);}),state.season);});
+        function hide(){panel.classList.remove('is-visible');panel.setAttribute('aria-hidden','true');}
+        if(close)close.addEventListener('click',hide);if(back)back.addEventListener('click',function(){if(state.level==='shows')showChannels();else if(state.level==='seasons')showShows(state.channel);else if(state.level==='episodes')showSeasons();else if(state.level==='torrents')showEpisodes(state.episodes.filter(function(e){return String(e.season)===String(state.season);}),state.season);});
         document.addEventListener('keydown',function(e){if(e.key==='Escape'&&panel.classList.contains('is-visible'))hide();});
         fetch(CONFIG.configUrl+'?v='+Date.now()).then(function(r){return r.json();}).then(function(config){state.config=config;if(panel.classList.contains('is-visible'))showChannels();}).catch(function(){state.config={channels:[]};});
         window.HolaSelfTV={open:open,close:hide};
+        waitForMenu(open);
     }
     window.initTvShows=mount;
 })(window);
