@@ -1,0 +1,12 @@
+services:
+  holaself:
+    build:
+      context: https://github.com/Judiooo/holaself.git#main
+      args:
+        domain: ${SERVER_HOST:?Set SERVER_HOST to the server IP and optional port, e.g. 192.168.1.50:8080}
+        prefix: ${SERVER_PREFIX:-http://}
+    image: holaself:latest
+    container_name: holaself
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:80"
