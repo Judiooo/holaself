@@ -1,163 +1,360 @@
 /*
- * TV-show catalogue UI.
- * Show metadata is resolved through TVmaze when a catalogue entry has no ID.
- * Torrent search/playback is delegated to the Lampa Parser/Torrent modules,
- * reusing the same TorrServer configuration as the rest of Lampa.
+ * holaself TV-shows integration.
+ * Uses Lampa's native Main/Season/Episode/Torrents components and Router.
+ * No custom full-screen UI is created here.
  */
 (function (window) {
     'use strict';
 
-    var CONFIG = {
-        configUrl: 'tv-shows.json',
-        tvmazeUrl: 'https://api.tvmaze.com/',
-        labels: { title:'ТВ-шоу', channels:'Телеканалы', shows:'Передачи', seasons:'Сезоны', episodes:'Выпуски', torrents:'Торренты' }
-    };
-    window.TV_SHOWS_CONFIG = CONFIG;
+    var CONFIG_URL = 'tv-shows.json';
+    var TVMAZE_URL = 'https://api.tvmaze.com/';
+    var configPromise = null;
+    var menuAdded = false;
 
-    function esc(value) { return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;'); }
-    function apiGet(url) { return fetch(url,{credentials:'omit'}).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }); }
-    function pad2(v) { v=String(v); return v.length<2?'0'+v:v; }
-
-    function torrentQueries(ep) {
-        var aliases = ep.torrent_queries || [];
-        var main = ep.showName + ' S' + pad2(ep.season) + 'E' + pad2(ep.number);
-        var variants = [main, ep.showName + ' ' + ep.season + 'x' + pad2(ep.number)];
-        aliases.forEach(function(alias){
-            if(alias && variants.indexOf(alias) < 0) variants.push(alias);
-        });
-        return variants;
-    }
-
-    function torrentQuery(ep) { return torrentQueries(ep)[0]; }
-
-    function normalizeResults(json) {
-        var results=[];
-        if (json && Array.isArray(json.Results)) results=json.Results.slice();
-        else if (json && Array.isArray(json.results)) results=json.results.slice();
-        else if (Array.isArray(json)) {
-            json.forEach(function(group){
-                if (group && Array.isArray(group.Results)) results=results.concat(group.Results);
-                else if (group && Array.isArray(group.results)) results=results.concat(group.results);
-                else if (group && (group.Title || group.title || group.MagnetUri || group.magnet)) results.push(group);
-            });
-        }
-        return results;
-    }
-
-    function mergeTorrentResults(all) {
-        var seen={}, results=[];
-        all.forEach(function(item){
-            var key=item.MagnetUri||item.magnet||item.Link||item.url||((item.Title||item.title||'')+'|'+(item.Size||item.size||'')+'|'+(item.Tracker||item.tracker||''));
-            if(!seen[key]) { seen[key]=true; results.push(item); }
-        });
-        results.sort(function(a,b){ return Number(b.Seeders||b.seeders||0)-Number(a.Seeders||a.seeders||0); });
-        return results.slice(0,50);
-    }
-
-    function openTorrent(item, movie) {
-        if (!window.Lampa || !window.Lampa.Torrent || typeof window.Lampa.Torrent.start !== 'function') throw new Error('Lampa Torrent API is not available');
-        var torrent = {
-            Title:item.Title||item.title, MagnetUri:item.MagnetUri||item.magnet||'', Link:item.Link||item.url||'',
-            Seeders:item.Seeders||item.seeders||0, Peers:item.Peers||item.peers||0, Size:item.Size||item.size||0, hash:item.hash||''
-        };
-        window.Lampa.Torrent.start(torrent,movie);
-    }
-
-    function searchTorrents(ep,movie,done,fail) {
-        if (!window.Lampa || !window.Lampa.Parser || typeof window.Lampa.Parser.get !== 'function') { fail(new Error('Lampa Parser API is not available')); return; }
-        var queries=torrentQueries(ep), pending=queries.length, all=[], hadSuccess=false, firstError=null;
-        function complete(){
-            pending--;
-            if(pending>0)return;
-            if(hadSuccess) done(mergeTorrentResults(all));
-            else fail(firstError||new Error('Parser search failed'));
-        }
-        queries.forEach(function(query){
-            var params={search:query,movie:movie,clarification:true};
-            try {
-                window.Lampa.Parser.get(params,function(json){
-                    hadSuccess=true;
-                    all=all.concat(normalizeResults(json));
-                    complete();
-                },function(error){
-                    if(!firstError)firstError=error;
-                    complete();
+    function getConfig() {
+        if (!configPromise) {
+            configPromise = fetch(CONFIG_URL + '?v=' + Date.now(), { credentials: 'omit' })
+                .then(function (response) {
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    return response.json();
                 });
-            } catch(error) {
-                if(!firstError)firstError=error;
-                complete();
-            }
+        }
+        return configPromise;
+    }
+
+    function apiGet(url) {
+        return fetch(url, { credentials: 'omit' }).then(function (response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
         });
     }
 
-    function buildSeasonMap(episodes) { return episodes.reduce(function(map,ep){ var s=ep.season||1; (map[s]=map[s]||[]).push(ep); return map; },{}); }
+    function pad2(value) {
+        value = String(value);
+        return value.length < 2 ? '0' + value : value;
+    }
+
+    function torrentQuery(showName, season, episode) {
+        return showName + ' S' + pad2(season) + 'E' + pad2(episode);
+    }
 
     function resolveShow(show) {
-        if (show.id) return apiGet(CONFIG.tvmazeUrl+'shows/'+encodeURIComponent(show.id));
-        var query = encodeURIComponent(show.name);
-        return apiGet(CONFIG.tvmazeUrl+'search/shows?q='+query).then(function(items){
-            if (!items || !items.length) throw new Error('TV show not found: '+show.name);
-            var exact=items.filter(function(item){return item.show&&String(item.show.name).toLowerCase()===String(show.name).toLowerCase();});
-            return (exact[0]||items[0]).show;
+        if (show.id) return apiGet(TVMAZE_URL + 'shows/' + encodeURIComponent(show.id));
+
+        return apiGet(TVMAZE_URL + 'search/shows?q=' + encodeURIComponent(show.name)).then(function (items) {
+            if (!items || !items.length) throw new Error('TV show not found: ' + show.name);
+
+            var exact = items.filter(function (item) {
+                return item.show && String(item.show.name).toLowerCase() === String(show.name).toLowerCase();
+            });
+
+            return (exact[0] || items[0]).show;
         });
     }
 
-    function addMenuEntry(open) {
-        if (!window.Lampa || !window.Lampa.Menu || typeof window.Lampa.Menu.addButton !== 'function') return false;
-        if (!window.appready || !document.querySelector('.menu__list')) return false;
-        if (document.querySelector('.menu__item[data-holaself-tv-shows="1"]')) return true;
+    function makeMain(object, onInstance) {
+        var main = Lampa.Maker.make('Main', object);
 
-        var button;
-        try {
-            button=window.Lampa.Menu.addButton('<svg><use xlink:href="#sprite-tv"></use></svg>', 'ТВ-шоу', open);
-        } catch(error) {
-            return false;
+        main.use({
+            onInstance: onInstance || function () {}
+        });
+
+        return main;
+    }
+
+    function channelData(channel, openShows) {
+        return {
+            title: channel.name,
+            results: [{
+                title: channel.name,
+                results: (channel.shows || []).map(function (show) {
+                    return {
+                        title: show.name,
+                        name: show.name,
+                        original_name: show.name,
+                        source: 'tvmaze',
+                        params: {
+                            emit: {
+                                onlyEnter: function () {
+                                    openShows(show);
+                                }
+                            }
+                        }
+                    };
+                })
+            }]
+        };
+    }
+
+    function channelsComponent(object) {
+        var openShows = function (channel) {
+            Lampa.Router.call('holaself_tv_shows', { channel: channel });
+        };
+
+        var main = makeMain({
+            title: 'ТВ-шоу',
+            results: [{
+                title: 'Телеканалы',
+                results: (object.channels || []).filter(function (channel) {
+                    return channel.enabled !== false;
+                }).map(function (channel) {
+                    return {
+                        title: channel.name,
+                        name: channel.name,
+                        original_name: channel.name,
+                        source: 'tvmaze',
+                        params: {
+                            emit: {
+                                onlyEnter: function () {
+                                    openShows(channel);
+                                }
+                            }
+                        }
+                    };
+                })
+            }]
+        });
+
+        return main;
+    }
+
+    function showsComponent(object) {
+        var channel = object.channel || { name: 'ТВ-шоу', shows: [] };
+
+        return makeMain(channelData(channel, function (show) {
+            Lampa.Router.call('holaself_tv_seasons', { show: show });
+        }).results ? channelData(channel, function (show) {
+            Lampa.Router.call('holaself_tv_seasons', { show: show });
+        }) : { title: channel.name, results: [] });
+    }
+
+    function seasonsComponent(object) {
+        var component = Lampa.Maker.make('Main', { title: object.show && object.show.name, results: [] });
+
+        component.use({
+            onCreate: function () {
+                var activity = this.activity;
+                if (activity) activity.loader(true);
+
+                resolveShow(object.show).then(function (details) {
+                    return apiGet(TVMAZE_URL + 'shows/' + encodeURIComponent(details.id) + '/episodes').then(function (episodes) {
+                        return { details: details, episodes: episodes };
+                    });
+                }).then(function (data) {
+                    var details = data.details;
+                    var episodes = data.episodes || [];
+                    var seasons = {};
+                    var movie = {
+                        id: details.id,
+                        name: details.name || object.show.name,
+                        title: details.name || object.show.name,
+                        original_name: details.name || object.show.name,
+                        original_title: details.name || object.show.name,
+                        first_air_date: details.premiered || '',
+                        genres: (details.genres || []).map(function (name) { return { name: name }; }),
+                        is_serial: true,
+                        number_of_seasons: 1,
+                        source: 'tvmaze'
+                    };
+
+                    episodes.forEach(function (episode) {
+                        var season = Number(episode.season || 1);
+                        if (!seasons[season]) seasons[season] = [];
+                        episode.original_name = movie.original_name;
+                        episode.card = movie;
+                        episode.showName = object.show.name;
+                        seasons[season].push(episode);
+                    });
+
+                    var seasonResults = Object.keys(seasons).sort(function (a, b) {
+                        return Number(b) - Number(a);
+                    }).map(function (seasonNumber) {
+                        var seasonEpisodes = seasons[seasonNumber];
+                        return {
+                            season_number: Number(seasonNumber),
+                            season: Number(seasonNumber),
+                            name: 'Сезон ' + seasonNumber,
+                            title: 'Сезон ' + seasonNumber,
+                            episode_count: seasonEpisodes.length,
+                            episodes: seasonEpisodes,
+                            card: movie,
+                            params: {
+                                createInstance: function (item) {
+                                    return Lampa.Maker.make('Season', item, function (module) {
+                                        return module.only('Line', 'Callback');
+                                    });
+                                },
+                                emit: {
+                                    onlyEnter: function () {
+                                        Lampa.Router.call('holaself_tv_episodes', {
+                                            show: object.show,
+                                            movie: movie,
+                                            episodes: seasonEpisodes,
+                                            season: Number(seasonNumber)
+                                        });
+                                    }
+                                }
+                            }
+                        };
+                    });
+
+                    this.build([{
+                        title: 'Сезоны',
+                        results: seasonResults
+                    }]);
+
+                    if (activity) {
+                        activity.loader(false);
+                        activity.toggle();
+                    }
+                }).catch(function () {
+                    if (activity) {
+                        activity.loader(false);
+                        activity.toggle();
+                    }
+                    this.build([{
+                        title: object.show && object.show.name,
+                        results: []
+                    }]);
+                }.bind(this));
+            }
+        });
+
+        return component;
+    }
+
+    function episodesComponent(object) {
+        var movie = object.movie || {};
+        var episodes = (object.episodes || []).slice().sort(function (a, b) {
+            return Number(a.number || a.episode_number || 0) - Number(b.number || b.episode_number || 0);
+        });
+
+        var results = episodes.map(function (episode) {
+            var number = Number(episode.number || episode.episode_number || 0);
+            var season = Number(episode.season || episode.season_number || object.season || 1);
+            var item = {
+                episode_number: number,
+                season_number: season,
+                air_date: episode.airdate || episode.air_date || '',
+                name: episode.name || ('Выпуск ' + number),
+                title: episode.name || ('Выпуск ' + number),
+                overview: episode.summary ? String(episode.summary).replace(/<[^>]+>/g, '') : '',
+                runtime: episode.runtime || 0,
+                original_name: movie.original_name,
+                card: movie,
+                showName: object.show && object.show.name,
+                params: {
+                    createInstance: function (data) {
+                        return Lampa.Maker.make('Episode', data, function (module) {
+                            return module.only('Line', 'Callback');
+                        });
+                    },
+                    emit: {
+                        onlyEnter: function () {
+                            Lampa.Router.call('torrents', {
+                                movie: movie,
+                                search: torrentQuery(object.show.name, season, number),
+                                clarification: true,
+                                from_search: false
+                            });
+                        }
+                    }
+                }
+            };
+
+            return item;
+        });
+
+        return makeMain({
+            title: (object.show && object.show.name || 'ТВ-шоу') + ' — сезон ' + object.season,
+            results: [{
+                title: 'Выпуски',
+                results: results
+            }]
+        });
+    }
+
+    function registerComponents() {
+        if (!window.Lampa || !Lampa.Component || typeof Lampa.Component.add !== 'function') return false;
+        if (!Lampa.Maker || typeof Lampa.Maker.make !== 'function') return false;
+
+        if (!Lampa.Component.get || !Lampa.Component.get('holaself_tv_channels')) {
+            Lampa.Component.add('holaself_tv_channels', channelsComponent);
+        }
+        if (!Lampa.Component.get || !Lampa.Component.get('holaself_tv_shows')) {
+            Lampa.Component.add('holaself_tv_shows', showsComponent);
+        }
+        if (!Lampa.Component.get || !Lampa.Component.get('holaself_tv_seasons')) {
+            Lampa.Component.add('holaself_tv_seasons', seasonsComponent);
+        }
+        if (!Lampa.Component.get || !Lampa.Component.get('holaself_tv_episodes')) {
+            Lampa.Component.add('holaself_tv_episodes', episodesComponent);
         }
 
-        if (!button || !button.length) {
-            var items=document.querySelectorAll('.menu__list .menu__item');
-            button=items.length ? $(items[items.length-1]) : null;
-        }
-        if (!button || !button.length) return false;
-
-        button.attr('data-holaself-tv-shows','1').attr('data-action','tv-shows');
-
-        var series=document.querySelector('.menu__item[data-action="tv"]');
-        if (series && series.parentNode) series.parentNode.insertBefore(button[0],series.nextSibling);
         return true;
     }
 
-    function waitForMenu(open) {
-        var attempts=0;
-        function tryAdd(){
-            attempts++;
-            if(addMenuEntry(open)) return;
-            if(attempts<80) setTimeout(tryAdd,250);
+    function addMenuEntry() {
+        if (menuAdded) return true;
+        if (!registerComponents()) return false;
+        if (!window.appready || !Lampa.Menu || typeof Lampa.Menu.addButton !== 'function') return false;
+
+        try {
+            var button = Lampa.Menu.addButton(
+                '<svg viewBox="0 0 24 24"><path d="M4 6h16v10H4zM8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+                'ТВ-шоу',
+                function () {
+                    getConfig().then(function (config) {
+                        Lampa.Router.call('holaself_tv_channels', config);
+                    });
+                }
+            );
+
+            if (!button || !button.length) return false;
+
+            button.attr('data-holaself-tv-shows', '1');
+
+            var series = document.querySelector('.menu__item[data-action="tv"]');
+            if (series && series.parentNode) {
+                series.parentNode.insertBefore(button[0], series.nextSibling);
+            }
+
+            menuAdded = true;
+            return true;
+        } catch (error) {
+            return false;
         }
-        tryAdd();
     }
 
-    function mount() {
-        var panel=document.getElementById('tv-shows-panel'), grid=document.getElementById('tv-shows-grid'), title=document.getElementById('tv-shows-title'), back=document.getElementById('tv-shows-back'), close=document.getElementById('tv-shows-close');
-        if(!panel||!grid||panel.__tvMounted)return;
-        panel.__tvMounted=true;
-        var state={level:'channels',config:null,channel:null,show:null,movie:null,episodes:[],season:null};
-        function header(text,canBack){if(title)title.textContent=text;if(back)back.style.display=canBack?'':'none';}
-        function focusFirst(){var first=grid.querySelector('.tv-show-card');if(first)first.focus();}
-        function cards(items,render,open){grid.innerHTML='';items.forEach(function(item,index){var card=document.createElement('div');card.className='tv-show-card';card.tabIndex=0;card.innerHTML=render(item,index);card.addEventListener('click',function(){open(item);});card.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();open(item);}});grid.appendChild(card);});if(!items.length)grid.innerHTML='<div class="tv-show-empty">Ничего не найдено.</div>';focusFirst();}
-        function showChannels(){state.level='channels';state.channel=null;header('ТВ-шоу',false);cards((state.config.channels||[]).filter(function(x){return x.enabled!==false;}),function(c){return '<div class="tv-show-card__name">'+esc(c.name)+'</div><div class="tv-show-card__status">'+((c.shows||[]).length)+' передач</div>';},showShows);}
-        function showShows(channel){state.level='shows';state.channel=channel;header(channel.name,true);cards(channel.shows||[],function(s){return '<div class="tv-show-card__name">'+esc(s.name)+'</div><div class="tv-show-card__status">Сезоны и выпуски</div>';},loadShow);}
-        function loadShow(show){state.show=show;state.level='seasons';grid.innerHTML='<div class="tv-show-empty">Загрузка сезонов и выпусков…</div>';resolveShow(show).then(function(details){return apiGet(CONFIG.tvmazeUrl+'shows/'+encodeURIComponent(details.id)+'/episodes').then(function(eps){return {details:details,episodes:eps};});}).then(function(data){var d=data.details;state.movie={id:d.id,name:d.name||show.name,title:d.name||show.name,original_name:d.name||show.name,original_title:d.name||show.name,first_air_date:d.premiered||'',genres:(d.genres||[]).map(function(name){return {name:name};}),is_serial:true,number_of_seasons:1,source:'tvmaze'};state.episodes=data.episodes.map(function(ep){ep.showName=show.name;ep.torrent_queries=show.torrent_queries||show.queries||[];return ep;});showSeasons();}).catch(function(){grid.innerHTML='<div class="tv-show-empty">Не удалось получить сезоны и выпуски для «'+esc(show.name)+'».</div>';});}
-        function showSeasons(){var seasons=buildSeasonMap(state.episodes);state.level='seasons';header(state.show.name+' — сезоны',true);cards(Object.keys(seasons).sort(function(a,b){return Number(a)-Number(b);}).map(function(n){return {number:n,count:seasons[n].length,episodes:seasons[n]};}),function(s){return '<div class="tv-show-card__name">Сезон '+esc(s.number)+'</div><div class="tv-show-card__status">'+s.count+' выпусков</div>';},function(s){showEpisodes(s.episodes,s.number);});}
-        function showEpisodes(episodes,season){state.level='episodes';state.season=season;header(state.show.name+' — сезон '+season,true);episodes.sort(function(a,b){return Number(a.number)-Number(b.number);});cards(episodes,function(ep){return '<div class="tv-show-card__name">'+esc(ep.number)+'. '+esc(ep.name)+'</div><div class="tv-show-card__status">'+esc(ep.airdate||'')+' · Торренты</div>';},findTorrents);}
-        function findTorrents(ep){state.level='torrents';header(ep.showName+' — '+ep.name,true);grid.innerHTML='<div class="tv-show-empty">Поиск торрентов: '+esc(torrentQuery(ep))+'…</div>';searchTorrents(ep,state.movie,function(items){cards(items,function(item){var size=item.size||item.Size||'';return '<div class="tv-show-card__name">'+esc(item.Title||item.title||'Раздача')+'</div><div class="tv-show-card__status">'+esc(size)+' · '+esc(item.Seeders||item.seeders||0)+' сидов · TorrServer</div>';},function(item){try{openTorrent(item,state.movie);}catch(e){grid.innerHTML='<div class="tv-show-empty">Не удалось открыть торрент через Lampa/TorrServer.</div>';}});},function(){grid.innerHTML='<div class="tv-show-empty">Не удалось выполнить поиск. Проверьте настройки парсера и TorrServer в Lampa.</div>';});}
-        function open(){panel.classList.add('is-visible');panel.setAttribute('aria-hidden','false');showChannels();}
-        function hide(){panel.classList.remove('is-visible');panel.setAttribute('aria-hidden','true');}
-        if(close)close.addEventListener('click',hide);if(back)back.addEventListener('click',function(){if(state.level==='shows')showChannels();else if(state.level==='seasons')showShows(state.channel);else if(state.level==='episodes')showSeasons();else if(state.level==='torrents')showEpisodes(state.episodes.filter(function(e){return String(e.season)===String(state.season);}),state.season);});
-        document.addEventListener('keydown',function(e){if(e.key==='Escape'&&panel.classList.contains('is-visible'))hide();});
-        fetch(CONFIG.configUrl+'?v='+Date.now()).then(function(r){return r.json();}).then(function(config){state.config=config;if(panel.classList.contains('is-visible'))showChannels();}).catch(function(){state.config={channels:[]};});
-        window.HolaSelfTV={open:open,close:hide};
-        waitForMenu(open);
+    function start() {
+        registerComponents();
+
+        var attempts = 0;
+        function tryMenu() {
+            attempts++;
+            if (addMenuEntry()) return;
+            if (attempts < 80) setTimeout(tryMenu, 250);
+        }
+        tryMenu();
     }
-    window.initTvShows=mount;
+
+    function bootstrap() {
+        if (window.appready) start();
+        else if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
+            Lampa.Listener.follow('app', function (event) {
+                if (event && event.type === 'ready') start();
+            });
+        }
+
+        setTimeout(function () {
+            if (window.appready) start();
+        }, 1000);
+    }
+
+    function init() {
+        if (!window.Lampa) return setTimeout(init, 100);
+        bootstrap();
+    }
+
+    init();
 })(window);
