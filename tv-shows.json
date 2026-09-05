@@ -1,11 +1,34 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "ТВ-шоу",
-  "description": "Конфигурация телеканалов и передач для раздела ТВ-шоу.",
+  "description": "Телеканалы → передачи → сезоны → выпуски. Эпизоды загружаются из TVmaze, а поиск торрентов выполняется через настроенный Jackett/Torznab-источник.",
   "channels": [
-    {"id":"pyatnitsa","name":"Пятница","enabled":true},
-    {"id":"yu","name":"Ю","enabled":true},
-    {"id":"sts","name":"СТС","enabled":true}
-  ],
-  "schedule": []
+    {
+      "id": "pyatnitsa",
+      "name": "Пятница",
+      "enabled": true,
+      "shows": [
+        {"id": 20467, "name": "Пацанки"},
+        {"id": 18663, "name": "На ножах"}
+      ]
+    },
+    {
+      "id": "yu",
+      "name": "Ю",
+      "enabled": true,
+      "shows": [
+        {"id": 41187, "name": "Беременна в 16"},
+        {"id": 55950, "name": "Моя свекровь — монстр"}
+      ]
+    },
+    {
+      "id": "sts",
+      "name": "СТС",
+      "enabled": true,
+      "shows": [
+        {"id": 27236, "name": "ПроСТО кухня"},
+        {"id": 64575, "name": "Против всех"}
+      ]
+    }
+  ]
 }
