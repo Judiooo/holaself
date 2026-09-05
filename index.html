@@ -27,16 +27,14 @@
     <script>window.youtube_lazy_load = true</script>
     <div class="welcome"></div>
     <div id="app"></div>
-
     <div class="no-network hide"><div class="no-network__title">Ошибка</div><div class="no-network__desc">Не удалось загрузить файл: <span class="no-network__file"></span></div></div>
-
     <script src="./webos/webOSTV.js"></script>
     <script src="./vender/jquery/jquery.js"></script>
     <script src="./vender/notify/notify.js"></script>
     <script src="./vender/scrollbar/jquery.scrollbar.js"></script>
     <script src="./vender/navigator/navigator.js"></script>
     <script src="./vender/keypad/keypad.js"></script>
-    <script src="./tv-shows.js?v=5"></script>
+    <script src="./tv-shows.js?v=6"></script>
     <script>
         var lampa_url = '';
         var cache_version = Math.floor((new Date()).getTime() / 9e5);
@@ -56,9 +54,7 @@
         if(typeof AndroidJS!=='undefined' && !!AndroidJS.getLampaURL && /^https?:\/\//i.test(AndroidJS.getLampaURL()) && !/^https?:\/\//i.test(location.href)) lampa_url=urlJoin(AndroidJS.getLampaURL(),'');
         if(lampa_url!=='') {
             putScript(urlJoin(lampa_url,'lampainit.js?v='+cache_version), false, function(){});
-            putScript(urlJoin(lampa_url,'app.min.js?v='+cache_version), function(){
-                $('head').append('<link rel="stylesheet" href="'+urlJoin(lampa_url,'css/app.css?v='+cache_version)+'">');
-            }, function(){
+            putScript(urlJoin(lampa_url,'app.min.js?v='+cache_version), function(){ $('head').append('<link rel="stylesheet" href="'+urlJoin(lampa_url,'css/app.css?v='+cache_version)+'">'); }, function(){
                 putScript(urlJoin(lampa_url,'lampa-main/app.min.js?v='+cache_version), function(){
                     $('head').append('<link rel="stylesheet" href="'+urlJoin(lampa_url,'lampa-main/css/app.css?v='+cache_version)+'">');
                     putScript(urlJoin(lampa_url,'lampainit.js?v='+cache_version), false, function(){});

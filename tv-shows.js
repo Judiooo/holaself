@@ -1,8 +1,4 @@
-/*
- * holaself TV-shows integration.
- * Uses Lampa's native Main/Season/Episode/Torrents components and Router.
- * No custom full-screen UI is created here.
- */
+/* holaself TV-shows: native Lampa screens only. */
 (function (window) {
     'use strict';
 
@@ -13,19 +9,18 @@
 
     function getConfig() {
         if (!configPromise) {
-            configPromise = fetch(CONFIG_URL + '?v=' + Date.now(), { credentials: 'omit' })
-                .then(function (response) {
-                    if (!response.ok) throw new Error('HTTP ' + response.status);
-                    return response.json();
-                });
+            configPromise = fetch(CONFIG_URL + '?v=' + Date.now(), { credentials: 'omit' }).then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            });
         }
         return configPromise;
     }
 
     function apiGet(url) {
-        return fetch(url, { credentials: 'omit' }).then(function (response) {
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-            return response.json();
+        return fetch(url, { credentials: 'omit' }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
         });
     }
 
@@ -34,93 +29,60 @@
         return value.length < 2 ? '0' + value : value;
     }
 
-    function torrentQuery(showName, season, episode) {
-        return showName + ' S' + pad2(season) + 'E' + pad2(episode);
+    function torrentQuery(name, season, episode) {
+        return name + ' S' + pad2(season) + 'E' + pad2(episode);
     }
 
     function resolveShow(show) {
-        if (show.id) return apiGet(TVMAZE_URL + 'shows/' + encodeURIComponent(show.id));
-
+        if (show && show.id) return apiGet(TVMAZE_URL + 'shows/' + encodeURIComponent(show.id));
         return apiGet(TVMAZE_URL + 'search/shows?q=' + encodeURIComponent(show.name)).then(function (items) {
-            if (!items || !items.length) throw new Error('TV show not found: ' + show.name);
-
-            var exact = items.filter(function (item) {
-                return item.show && String(item.show.name).toLowerCase() === String(show.name).toLowerCase();
-            });
-
-            return (exact[0] || items[0]).show;
+            if (!items || !items.length) throw new Error('TV show not found');
+            return (items.filter(function (x) {
+                return x.show && String(x.show.name).toLowerCase() === String(show.name).toLowerCase();
+            })[0] || items[0]).show;
         });
     }
 
-    function makeMain(object, build) {
-        var component = Lampa.Maker.make('Main', object);
-
-        component.use({
-            onCreate: function () {
-                this.build(build());
-            }
-        });
-
+    function main(data, onCreate) {
+        var component = Lampa.Maker.make('Main', data);
+        component.use({ onCreate: onCreate });
         return component;
     }
 
     function channelsComponent(object) {
-        return makeMain({
-            title: 'ТВ-шоу',
-            results: []
-        }, function () {
-            var results = (object.channels || [])
-                .filter(function (channel) { return channel.enabled !== false; })
-                .map(function (channel) {
-                    return {
-                        title: channel.name,
-                        name: channel.name,
-                        original_name: channel.name,
-                        source: 'tvmaze',
-                        params: {
-                            emit: {
-                                onlyEnter: function () {
-                                    Lampa.Router.call('holaself_tv_shows', { channel: channel });
-                                }
-                            }
-                        }
-                    };
-                });
-
-            return [{
-                title: 'Телеканалы',
-                results: results
-            }];
+        return main({ title: 'ТВ-шоу', results: [] }, function () {
+            var results = (object.channels || []).filter(function (c) {
+                return c.enabled !== false;
+            }).map(function (channel) {
+                return {
+                    title: channel.name,
+                    name: channel.name,
+                    original_name: channel.name,
+                    source: 'tvmaze',
+                    params: { emit: { onlyEnter: function () {
+                        Lampa.Router.call('holaself_tv_shows', { channel: channel });
+                    } } }
+                };
+            });
+            this.build([{ title: 'Телеканалы', results: results }]);
         });
     }
 
     function showsComponent(object) {
         var channel = object.channel || { name: 'ТВ-шоу', shows: [] };
-
-        return makeMain({
-            title: channel.name,
-            results: []
-        }, function () {
+        return main({ title: channel.name, results: [] }, function () {
             var results = (channel.shows || []).map(function (show) {
                 return {
                     title: show.name,
                     name: show.name,
                     original_name: show.name,
                     source: 'tvmaze',
-                    params: {
-                        emit: {
-                            onlyEnter: function () {
-                                Lampa.Router.call('holaself_tv_seasons', { show: show });
-                            }
-                        }
-                    }
+                    params: { emit: { onlyEnter: function () {
+                        Lampa.Router.call('holaself_tv_seasons', { show: show });
+                    } } }
                 };
             });
-
-            return [{
-                title: channel.name,
-                results: results
-            }];
+            this.build([{ title: channel.name, results: results }]);
         });
     }
 
@@ -132,16 +94,17 @@
 
         component.use({
             onCreate: function () {
-                var activity = this.activity;
+                var self = this;
+                var activity = self.activity;
                 if (activity) activity.loader(true);
 
                 resolveShow(object.show).then(function (details) {
                     return apiGet(TVMAZE_URL + 'shows/' + encodeURIComponent(details.id) + '/episodes').then(function (episodes) {
-                        return { details: details, episodes: episodes };
+                        return { details: details, episodes: episodes || [] };
                     });
                 }).then(function (data) {
                     var details = data.details;
-                    var episodes = data.episodes || [];
+                    var episodes = data.episodes;
                     var seasons = {};
                     var movie = {
                         id: details.id,
@@ -150,30 +113,29 @@
                         original_name: details.name || object.show.name,
                         original_title: details.name || object.show.name,
                         first_air_date: details.premiered || '',
-                        genres: (details.genres || []).map(function (name) { return { name: name }; }),
+                        genres: (details.genres || []).map(function (g) { return { name: g }; }),
                         is_serial: true,
-                        number_of_seasons: 1,
+                        number_of_seasons: details.runtime ? 1 : 1,
                         source: 'tvmaze'
                     };
 
                     episodes.forEach(function (episode) {
-                        var season = Number(episode.season || 1);
-                        if (!seasons[season]) seasons[season] = [];
+                        var number = Number(episode.season || 1);
+                        if (!seasons[number]) seasons[number] = [];
                         episode.original_name = movie.original_name;
                         episode.card = movie;
-                        episode.showName = object.show.name;
-                        seasons[season].push(episode);
+                        seasons[number].push(episode);
                     });
 
-                    var seasonResults = Object.keys(seasons).sort(function (a, b) {
+                    var results = Object.keys(seasons).sort(function (a, b) {
                         return Number(b) - Number(a);
-                    }).map(function (seasonNumber) {
-                        var seasonEpisodes = seasons[seasonNumber];
+                    }).map(function (number) {
+                        var seasonEpisodes = seasons[number];
                         return {
-                            season_number: Number(seasonNumber),
-                            season: Number(seasonNumber),
-                            name: 'Сезон ' + seasonNumber,
-                            title: 'Сезон ' + seasonNumber,
+                            season_number: Number(number),
+                            season: Number(number),
+                            name: 'Сезон ' + number,
+                            title: 'Сезон ' + number,
                             episode_count: seasonEpisodes.length,
                             episodes: seasonEpisodes,
                             card: movie,
@@ -183,39 +145,31 @@
                                         return module.only('Line', 'Callback');
                                     });
                                 },
-                                emit: {
-                                    onlyEnter: function () {
-                                        Lampa.Router.call('holaself_tv_episodes', {
-                                            show: object.show,
-                                            movie: movie,
-                                            episodes: seasonEpisodes,
-                                            season: Number(seasonNumber)
-                                        });
-                                    }
-                                }
+                                emit: { onlyEnter: function () {
+                                    Lampa.Router.call('holaself_tv_episodes', {
+                                        show: object.show,
+                                        movie: movie,
+                                        episodes: seasonEpisodes,
+                                        season: Number(number)
+                                    });
+                                } }
                             }
                         };
                     });
 
-                    this.build([{
-                        title: 'Сезоны',
-                        results: seasonResults
-                    }]);
-
+                    self.build([{ title: 'Сезоны', results: results }]);
                     if (activity) {
                         activity.loader(false);
                         activity.toggle();
                     }
-                }).catch(function () {
+                }).catch(function (error) {
+                    console.error('holaself TV seasons:', error);
                     if (activity) {
                         activity.loader(false);
                         activity.toggle();
                     }
-                    this.build([{
-                        title: object.show && object.show.name,
-                        results: []
-                    }]);
-                }.bind(this));
+                    self.build([{ title: object.show && object.show.name, results: [] }]);
+                });
             }
         });
 
@@ -225,125 +179,98 @@
     function episodesComponent(object) {
         var movie = object.movie || {};
         var episodes = (object.episodes || []).slice().sort(function (a, b) {
-            return Number(a.number || a.episode_number || 0) - Number(b.number || b.episode_number || 0);
+            return Number(a.number || 0) - Number(b.number || 0);
         });
 
-        return makeMain({
+        return main({
             title: (object.show && object.show.name || 'ТВ-шоу') + ' — сезон ' + object.season,
             results: []
         }, function () {
             var results = episodes.map(function (episode) {
-                var number = Number(episode.number || episode.episode_number || 0);
-                var season = Number(episode.season || episode.season_number || object.season || 1);
-
+                var number = Number(episode.number || 0);
+                var season = Number(episode.season || object.season || 1);
                 return {
                     episode_number: number,
                     season_number: season,
-                    air_date: episode.airdate || episode.air_date || '',
+                    air_date: episode.airdate || '',
                     name: episode.name || ('Выпуск ' + number),
                     title: episode.name || ('Выпуск ' + number),
                     overview: episode.summary ? String(episode.summary).replace(/<[^>]+>/g, '') : '',
                     runtime: episode.runtime || 0,
                     original_name: movie.original_name,
                     card: movie,
-                    showName: object.show && object.show.name,
                     params: {
-                        createInstance: function (data) {
-                            return Lampa.Maker.make('Episode', data, function (module) {
+                        createInstance: function (item) {
+                            return Lampa.Maker.make('Episode', item, function (module) {
                                 return module.only('Line', 'Callback');
                             });
                         },
-                        emit: {
-                            onlyEnter: function () {
-                                Lampa.Router.call('torrents', {
-                                    movie: movie,
-                                    search: torrentQuery(object.show.name, season, number),
-                                    clarification: true,
-                                    from_search: false
-                                });
-                            }
-                        }
+                        emit: { onlyEnter: function () {
+                            Lampa.Router.call('torrents', {
+                                movie: movie,
+                                search: torrentQuery(object.show.name, season, number),
+                                clarification: true,
+                                from_search: false
+                            });
+                        } }
                     }
                 };
             });
-
-            return [{
-                title: 'Выпуски',
-                results: results
-            }];
+            this.build([{ title: 'Выпуски', results: results }]);
         });
     }
 
     function registerComponents() {
         if (!window.Lampa || !Lampa.Component || typeof Lampa.Component.add !== 'function') return false;
         if (!Lampa.Maker || typeof Lampa.Maker.make !== 'function') return false;
-
         if (!Lampa.Component.get('holaself_tv_channels')) Lampa.Component.add('holaself_tv_channels', channelsComponent);
         if (!Lampa.Component.get('holaself_tv_shows')) Lampa.Component.add('holaself_tv_shows', showsComponent);
         if (!Lampa.Component.get('holaself_tv_seasons')) Lampa.Component.add('holaself_tv_seasons', seasonsComponent);
         if (!Lampa.Component.get('holaself_tv_episodes')) Lampa.Component.add('holaself_tv_episodes', episodesComponent);
-
         return true;
     }
 
     function addMenuEntry() {
-        if (menuAdded) return true;
-        if (!registerComponents()) return false;
+        if (menuAdded || !registerComponents()) return menuAdded;
         if (!window.appready || !Lampa.Menu || typeof Lampa.Menu.addButton !== 'function') return false;
-
         try {
-            var button = Lampa.Menu.addButton(
-                '<svg viewBox="0 0 24 24"><path d="M4 6h16v10H4zM8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
-                'ТВ-шоу',
-                function () {
-                    getConfig().then(function (config) {
-                        Lampa.Router.call('holaself_tv_channels', config);
-                    }).catch(function () {});
-                }
-            );
-
+            var button = Lampa.Menu.addButton('<svg viewBox="0 0 24 24"><path d="M4 6h16v10H4zM8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="2"/></svg>', 'ТВ-шоу', function () {
+                getConfig().then(function (config) {
+                    Lampa.Router.call('holaself_tv_channels', config);
+                }).catch(function (error) { console.error('holaself TV config:', error); });
+            });
             if (!button || !button.length) return false;
-
             button.attr('data-holaself-tv-shows', '1');
-
             var series = document.querySelector('.menu__item[data-action="tv"]');
             if (series && series.parentNode) series.parentNode.insertBefore(button[0], series.nextSibling);
-
             menuAdded = true;
             return true;
         } catch (error) {
+            console.error('holaself TV menu:', error);
             return false;
         }
     }
 
     function start() {
         registerComponents();
-
         var attempts = 0;
-        function tryMenu() {
-            attempts++;
+        function retry() {
             if (addMenuEntry()) return;
-            if (attempts < 80) setTimeout(tryMenu, 250);
+            attempts++;
+            if (attempts < 80) setTimeout(retry, 250);
         }
-        tryMenu();
+        retry();
     }
 
-    function bootstrap() {
+    function init() {
+        if (!window.Lampa) return setTimeout(init, 100);
         if (window.appready) start();
         else if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
             Lampa.Listener.follow('app', function (event) {
                 if (event && event.type === 'ready') start();
             });
         }
-
-        setTimeout(function () {
-            if (window.appready) start();
-        }, 1000);
-    }
-
-    function init() {
-        if (!window.Lampa) return setTimeout(init, 100);
-        bootstrap();
+        setTimeout(function () { if (window.appready) start(); }, 1000);
     }
 
     init();
