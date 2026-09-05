@@ -104,9 +104,22 @@
 
     function addMenuEntry(open) {
         if (!window.Lampa || !window.Lampa.Menu || typeof window.Lampa.Menu.addButton !== 'function') return false;
+        if (!window.appready || !document.querySelector('.menu__list')) return false;
         if (document.querySelector('.menu__item[data-holaself-tv-shows="1"]')) return true;
 
-        var button=window.Lampa.Menu.addButton('<svg><use xlink:href="#sprite-tv"></use></svg>', 'ТВ-шоу', open);
+        var button;
+        try {
+            button=window.Lampa.Menu.addButton('<svg><use xlink:href="#sprite-tv"></use></svg>', 'ТВ-шоу', open);
+        } catch(error) {
+            return false;
+        }
+
+        if (!button || !button.length) {
+            var items=document.querySelectorAll('.menu__list .menu__item');
+            button=items.length ? $(items[items.length-1]) : null;
+        }
+        if (!button || !button.length) return false;
+
         button.attr('data-holaself-tv-shows','1').attr('data-action','tv-shows');
 
         var series=document.querySelector('.menu__item[data-action="tv"]');
@@ -119,7 +132,7 @@
         function tryAdd(){
             attempts++;
             if(addMenuEntry(open)) return;
-            if(attempts<40) setTimeout(tryAdd,250);
+            if(attempts<80) setTimeout(tryAdd,250);
         }
         tryAdd();
     }
