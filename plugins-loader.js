@@ -1,64 +1,67 @@
 (function () {
     'use strict';
 
+    // Register bundled plugins in Lampa's native Extensions storage.
+    // They are installed but disabled by default. Lampa will load a plugin
+    // only after the user enables it from Settings -> Extensions.
     var plugins = [
-        'collections',
-        'dlna',
-        'etor',
-        'halloween',
-        'iptv',
-        'online',
-        'online_prestige',
-        'radio',
-        'record',
-        'shots',
-        'snow',
-        'tmdb_proxy',
-        'tracks',
-        'twolines',
-        'view_plugin',
-        'womens-day'
+        { file: 'collections', name: 'Collections', author: '@yumata' },
+        { file: 'dlna', name: 'DLNA', author: '@yumata' },
+        { file: 'etor', name: 'ETOR', author: '@yumata' },
+        { file: 'halloween', name: 'Halloween', author: '@yumata' },
+        { file: 'iptv', name: 'IPTV', author: '@yumata' },
+        { file: 'online', name: 'Online', author: '@yumata' },
+        { file: 'online_prestige', name: 'Online Prestige', author: '@yumata' },
+        { file: 'radio', name: 'Radio', author: '@yumata' },
+        { file: 'record', name: 'Record', author: '@yumata' },
+        { file: 'shots', name: 'Shots', author: '@yumata' },
+        { file: 'snow', name: 'Snow', author: '@yumata' },
+        { file: 'tmdb_proxy', name: 'TMDB Proxy', author: '@yumata' },
+        { file: 'tracks', name: 'Tracks', author: '@yumata' },
+        { file: 'twolines', name: 'Two Lines', author: '@yumata' },
+        { file: 'view_plugin', name: 'Plugin Manager', author: '@yumata' },
+        { file: 'womens-day', name: "Women's Day", author: '@yumata' }
     ];
 
-    function load(name) {
-        return new Promise(function (resolve) {
-            var script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.src = './plugins/' + name + '.js?v=1';
-            script.onload = function () {
-                console.log('holaself plugin loaded:', name);
-                resolve();
-            };
-            script.onerror = function () {
-                console.error('holaself plugin failed:', name);
-                resolve();
-            };
-            document.body.appendChild(script);
-        });
-    }
+    function register() {
+        var current = [];
 
-    function start() {
-        plugins.reduce(function (chain, name) {
-            return chain.then(function () { return load(name); });
-        }, Promise.resolve()).then(function () {
-            console.log('holaself plugins ready');
-        });
-    }
+        try {
+            current = JSON.parse(window.localStorage.getItem('plugins') || '[]');
+        }
+        catch (e) {
+            current = [];
+        }
 
-    if (window.appready) start();
-    else if (window.Lampa && Lampa.Listener) {
-        Lampa.Listener.follow('app', function (event) {
-            if (event.type === 'ready') start();
-        });
-    } else {
-        var timer = setInterval(function () {
-            if (window.appready || (window.Lampa && Lampa.Listener)) {
-                clearInterval(timer);
-                if (window.appready) start();
-                else Lampa.Listener.follow('app', function (event) {
-                    if (event.type === 'ready') start();
+        if (!Array.isArray(current)) current = [];
+
+        plugins.forEach(function (plugin) {
+            var url = './plugins/' + plugin.file + '.js';
+            var exists = current.find(function (item) {
+                return (typeof item === 'string' ? item : item && item.url) === url;
+            });
+
+            if (!exists) {
+                current.push({
+                    url: url,
+                    status: 0,
+                    name: plugin.name,
+                    author: plugin.author,
+                    descr: 'Встроенное расширение holaself'
                 });
             }
-        }, 250);
+        });
+
+        try {
+            window.localStorage.setItem('plugins', JSON.stringify(current));
+            console.log('holaself: bundled plugins registered in Extensions');
+        }
+        catch (e) {
+            console.error('holaself: failed to register bundled plugins', e);
+        }
     }
+
+    // This file is loaded before app.min.js, so localStorage is populated
+    // before Lampa initializes its Plugins module.
+    register();
 })();
