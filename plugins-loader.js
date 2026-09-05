@@ -1,9 +1,9 @@
 (function () {
     'use strict';
 
-    // Register bundled plugins in Lampa's native Extensions storage.
-    // They are installed but disabled by default. Lampa will load a plugin
-    // only after the user enables it from Settings -> Extensions.
+    // Register bundled plugins in Lampa's native Extensions storage once.
+    // They are installed but disabled by default. Lampa loads a plugin only
+    // after the user enables it from Settings -> Extensions.
     var plugins = [
         { file: 'collections', name: 'Collections', author: '@yumata' },
         { file: 'dlna', name: 'DLNA', author: '@yumata' },
@@ -24,6 +24,8 @@
     ];
 
     function register() {
+        if (window.localStorage.getItem('holaself_bundled_plugins_installed') === '1') return;
+
         var current = [];
 
         try {
@@ -54,6 +56,7 @@
 
         try {
             window.localStorage.setItem('plugins', JSON.stringify(current));
+            window.localStorage.setItem('holaself_bundled_plugins_installed', '1');
             console.log('holaself: bundled plugins registered in Extensions');
         }
         catch (e) {
