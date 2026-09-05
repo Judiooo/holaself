@@ -1,0 +1,8 @@
+{
+  "source": "https://github.com/yumata/lampa-source",
+  "source_ref": "d2c35548c28ecf56b7491ad09d969c2a04a948b8",
+  "plugins": [
+    "collections", "dlna", "etor", "halloween", "iptv", "online", "online_prestige", "radio",
+    "record", "shots", "snow", "tmdb_proxy", "tracks", "twolines", "view_plugin", "womens-day"
+  ]
+}
