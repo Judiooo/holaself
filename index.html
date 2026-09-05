@@ -36,8 +36,6 @@
         .tv-show-card__status { margin-top:8px; opacity:.6; font-size:14px; }
         .tv-shows-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
         .tv-show-empty { opacity:.6; padding:30px 0; }
-        .tv-shows-entry { position:fixed; z-index:999; right:24px; bottom:24px; padding:14px 18px; border-radius:10px; background:rgba(255,255,255,.12); color:#fff; cursor:pointer; font-size:16px; }
-        .tv-shows-entry:focus { outline:2px solid #fff; }
     </style>
 </head>
 <body style="background:#1d1f20;">
@@ -45,7 +43,6 @@
     <div class="welcome"></div>
     <div id="app"></div>
 
-    <button id="tv-shows-entry" class="tv-shows-entry" type="button">ТВ-шоу</button>
     <div id="tv-shows-panel" class="tv-shows-panel" aria-hidden="true">
         <div class="tv-shows-panel__inner">
             <div class="tv-shows-panel__header">
@@ -70,7 +67,7 @@
     <script src="./vender/scrollbar/jquery.scrollbar.js"></script>
     <script src="./vender/navigator/navigator.js"></script>
     <script src="./vender/keypad/keypad.js"></script>
-    <script src="./tv-shows.js?v=2"></script>
+    <script src="./tv-shows.js?v=3"></script>
     <script>
         var lampa_url = '';
         var cache_version = Math.floor((new Date()).getTime() / 9e5);
