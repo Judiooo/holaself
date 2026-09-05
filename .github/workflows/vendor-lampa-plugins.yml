@@ -1,0 +1,73 @@
+name: Vendor Lampa plugins
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    if: ${{ !contains(github.event.head_commit.message, '[plugins-sync]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout holaself
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout yumata/lampa-source
+        uses: actions/checkout@v4
+        with:
+          repository: yumata/lampa-source
+          ref: main
+          path: .lampa-source
+          fetch-depth: 1
+
+      - name: Build plugin bundles
+        working-directory: .lampa-source
+        run: |
+          npm install --no-audit --no-fund
+          npx gulp pack_plugins
+          for i in $(seq 1 60); do
+            ok=1
+            for plugin in collections dlna etor halloween iptv online online_prestige radio record shots snow tmdb_proxy tracks twolines view_plugin womens-day; do
+              test -f "dest/$plugin/$plugin.js" || ok=0
+            done
+            [ "$ok" -eq 1 ] && break
+            sleep 1
+          done
+          for plugin in collections dlna etor halloween iptv online online_prestige radio record shots snow tmdb_proxy tracks twolines view_plugin womens-day; do
+            test -f "dest/$plugin/$plugin.js" || { echo "Missing bundle: $plugin"; exit 1; }
+          done
+
+      - name: Vendor plugin source and bundles
+        run: |
+          rm -rf plugins/source
+          mkdir -p plugins/source
+          cp -R .lampa-source/plugins/. plugins/source/
+          cp .lampa-source/LICENSE plugins/LAMPA-SOURCE-LICENSE
+          for plugin in collections dlna etor halloween iptv online online_prestige radio record shots snow tmdb_proxy tracks twolines view_plugin womens-day; do
+            cp ".lampa-source/dest/$plugin/$plugin.js" "plugins/$plugin.js"
+          done
+          cat > plugins/manifest.json <<MANIFEST
+          {
+            "source": "https://github.com/yumata/lampa-source",
+            "source_ref": "$(cd .lampa-source && git rev-parse HEAD)",
+            "plugins": [
+              "collections", "dlna", "etor", "halloween", "iptv", "online", "online_prestige", "radio",
+              "record", "shots", "snow", "tmdb_proxy", "tracks", "twolines", "view_plugin", "womens-day"
+            ]
+          }
+          MANIFEST
+
+      - name: Commit vendored plugins
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins
+          git diff --cached --quiet && exit 0
+          git commit -m "Vendor Lampa plugins from yumata/lampa-source [plugins-sync]"
+          git push
