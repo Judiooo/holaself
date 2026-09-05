@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "ТВ-шоу",
+  "description": "Конфигурация телеканалов и передач для раздела ТВ-шоу.",
+  "channels": [
+    {"id":"pyatnitsa","name":"Пятница","enabled":true},
+    {"id":"yu","name":"Ю","enabled":true},
+    {"id":"sts","name":"СТС","enabled":true}
+  ],
+  "schedule": []
+}
