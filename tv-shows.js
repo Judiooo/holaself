@@ -52,62 +52,75 @@
         });
     }
 
-    function makeMain(object) {
-        return Lampa.Maker.make('Main', object);
+    function makeMain(object, build) {
+        var component = Lampa.Maker.make('Main', object);
+
+        component.use({
+            onCreate: function () {
+                this.build(build());
+            }
+        });
+
+        return component;
     }
 
     function channelsComponent(object) {
-        var results = (object.channels || [])
-            .filter(function (channel) { return channel.enabled !== false; })
-            .map(function (channel) {
+        return makeMain({
+            title: 'ТВ-шоу',
+            results: []
+        }, function () {
+            var results = (object.channels || [])
+                .filter(function (channel) { return channel.enabled !== false; })
+                .map(function (channel) {
+                    return {
+                        title: channel.name,
+                        name: channel.name,
+                        original_name: channel.name,
+                        source: 'tvmaze',
+                        params: {
+                            emit: {
+                                onlyEnter: function () {
+                                    Lampa.Router.call('holaself_tv_shows', { channel: channel });
+                                }
+                            }
+                        }
+                    };
+                });
+
+            return [{
+                title: 'Телеканалы',
+                results: results
+            }];
+        });
+    }
+
+    function showsComponent(object) {
+        var channel = object.channel || { name: 'ТВ-шоу', shows: [] };
+
+        return makeMain({
+            title: channel.name,
+            results: []
+        }, function () {
+            var results = (channel.shows || []).map(function (show) {
                 return {
-                    title: channel.name,
-                    name: channel.name,
-                    original_name: channel.name,
+                    title: show.name,
+                    name: show.name,
+                    original_name: show.name,
                     source: 'tvmaze',
                     params: {
                         emit: {
                             onlyEnter: function () {
-                                Lampa.Router.call('holaself_tv_shows', { channel: channel });
+                                Lampa.Router.call('holaself_tv_seasons', { show: show });
                             }
                         }
                     }
                 };
             });
 
-        return makeMain({
-            title: 'ТВ-шоу',
-            results: [{
-                title: 'Телеканалы',
-                results: results
-            }]
-        });
-    }
-
-    function showsComponent(object) {
-        var channel = object.channel || { name: 'ТВ-шоу', shows: [] };
-        var results = (channel.shows || []).map(function (show) {
-            return {
-                title: show.name,
-                name: show.name,
-                original_name: show.name,
-                source: 'tvmaze',
-                params: {
-                    emit: {
-                        onlyEnter: function () {
-                            Lampa.Router.call('holaself_tv_seasons', { show: show });
-                        }
-                    }
-                }
-            };
-        });
-
-        return makeMain({
-            title: channel.name,
-            results: [{
+            return [{
                 title: channel.name,
                 results: results
-            }]
+            }];
         });
     }
 
@@ -215,47 +228,49 @@
             return Number(a.number || a.episode_number || 0) - Number(b.number || b.episode_number || 0);
         });
 
-        var results = episodes.map(function (episode) {
-            var number = Number(episode.number || episode.episode_number || 0);
-            var season = Number(episode.season || episode.season_number || object.season || 1);
-
-            return {
-                episode_number: number,
-                season_number: season,
-                air_date: episode.airdate || episode.air_date || '',
-                name: episode.name || ('Выпуск ' + number),
-                title: episode.name || ('Выпуск ' + number),
-                overview: episode.summary ? String(episode.summary).replace(/<[^>]+>/g, '') : '',
-                runtime: episode.runtime || 0,
-                original_name: movie.original_name,
-                card: movie,
-                showName: object.show && object.show.name,
-                params: {
-                    createInstance: function (data) {
-                        return Lampa.Maker.make('Episode', data, function (module) {
-                            return module.only('Line', 'Callback');
-                        });
-                    },
-                    emit: {
-                        onlyEnter: function () {
-                            Lampa.Router.call('torrents', {
-                                movie: movie,
-                                search: torrentQuery(object.show.name, season, number),
-                                clarification: true,
-                                from_search: false
-                            });
-                        }
-                    }
-                }
-            };
-        });
-
         return makeMain({
             title: (object.show && object.show.name || 'ТВ-шоу') + ' — сезон ' + object.season,
-            results: [{
+            results: []
+        }, function () {
+            var results = episodes.map(function (episode) {
+                var number = Number(episode.number || episode.episode_number || 0);
+                var season = Number(episode.season || episode.season_number || object.season || 1);
+
+                return {
+                    episode_number: number,
+                    season_number: season,
+                    air_date: episode.airdate || episode.air_date || '',
+                    name: episode.name || ('Выпуск ' + number),
+                    title: episode.name || ('Выпуск ' + number),
+                    overview: episode.summary ? String(episode.summary).replace(/<[^>]+>/g, '') : '',
+                    runtime: episode.runtime || 0,
+                    original_name: movie.original_name,
+                    card: movie,
+                    showName: object.show && object.show.name,
+                    params: {
+                        createInstance: function (data) {
+                            return Lampa.Maker.make('Episode', data, function (module) {
+                                return module.only('Line', 'Callback');
+                            });
+                        },
+                        emit: {
+                            onlyEnter: function () {
+                                Lampa.Router.call('torrents', {
+                                    movie: movie,
+                                    search: torrentQuery(object.show.name, season, number),
+                                    clarification: true,
+                                    from_search: false
+                                });
+                            }
+                        }
+                    }
+                };
+            });
+
+            return [{
                 title: 'Выпуски',
                 results: results
-            }]
+            }];
         });
     }
 
@@ -283,7 +298,7 @@
                 function () {
                     getConfig().then(function (config) {
                         Lampa.Router.call('holaself_tv_channels', config);
-                    });
+                    }).catch(function () {});
                 }
             );
 
