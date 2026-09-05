@@ -1,0 +1,6 @@
+{
+	"name": "Lampa",
+	"version": "latest",
+	"parameter": "content:{PREFIX}192.168.1.109/msx/start.json",
+	"action": "link:{PREFIX}192.168.1.109"
+}
